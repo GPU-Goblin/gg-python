@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: package and PyTorch driver
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gg-python
+      # The tests use the `gg` command line as the reference checker of the descriptions.
+      - uses: actions/checkout@v4
+        with:
+          repository: GPU-Goblin/gg-server
+          path: gg-server
+      - name: Rust toolchain
+        working-directory: gg-server
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gg-server
+      - name: Build gg
+        working-directory: gg-server
+        run: cargo build -p gg-cli
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        working-directory: gg-python
+        run: pip install -e '.[torch,test]' --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+      - name: Tests
+        working-directory: gg-python
+        env:
+          GG_BIN: ${{ github.workspace }}/gg-server/target/debug/gg
+        run: python -m pytest -q tests
