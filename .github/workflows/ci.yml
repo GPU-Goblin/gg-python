@@ -17,10 +17,12 @@ jobs:
         with:
           path: gg-python
       # The tests use the `gg` command line as the reference checker of the descriptions.
+      # gg-server is private: read with its read-only deploy key (secret of this repository).
       - uses: actions/checkout@v4
         with:
           repository: GPU-Goblin/gg-server
           path: gg-server
+          ssh-key: ${{ secrets.GG_SERVER_DEPLOY_KEY }}
       - name: Rust toolchain
         working-directory: gg-server
         run: rustup show
