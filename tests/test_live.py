@@ -1,4 +1,5 @@
-"""End to end against a real server: enabled by GG_SERVER, GG_TOKEN and GG_PROJECT."""
+"""End to end against a real server: enabled by GG_SERVER, GG_TOKEN and GG_PROJECT. With GG_NODE (a
+lab node's local API), the data, the runs and the trained weights go through the node (ADR-0041)."""
 
 import os
 
@@ -18,7 +19,7 @@ def test_train_on_the_grid():
     This is the end-to-end proof: capture, description validated by the server, tasks executed by
     real workers, verified by a real validator, checkpoint reloaded into the module.
     """
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     profile = client.operator_profile()
     from gpugoblin.export import PROFILE_VERSION
@@ -69,7 +70,7 @@ def test_train_a_causal_language_model_on_the_grid():
 
     import torch.nn.functional as F
 
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     vocab, seq, dim, heads = 17, 8, 24, 2
 
@@ -138,7 +139,7 @@ def test_train_a_rotary_model_on_an_order_task_on_the_grid():
 
     import torch.nn.functional as F
 
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     vocab, seq, dim, heads = 16, 8, 32, 2
 
@@ -223,7 +224,7 @@ def test_train_a_scaled_rotary_model_on_the_grid():
     from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding, apply_rotary_pos_emb
 
     logging.getLogger("transformers").setLevel(logging.ERROR)
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     vocab, seq, dim, heads = 16, 8, 32, 2
 
@@ -305,7 +306,7 @@ def test_train_a_real_transformers_llama_on_the_grid():
     from transformers import LlamaConfig, LlamaForCausalLM
 
     logging.getLogger("transformers").setLevel(logging.ERROR)
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     vocab, seq = 16, 8
 
@@ -371,7 +372,7 @@ def _copy_task(vocab, seq, n=1024):
 def _train_copy(model, name, rounds, lr=0.01):
     import torch.nn.functional as F
 
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     vocab, seq = 16, 8
     ids, targets = _copy_task(vocab, seq)
     x, y = torch.from_numpy(ids), torch.from_numpy(targets)
@@ -465,7 +466,7 @@ def test_a_model_larger_than_every_worker_trains_in_stages_on_the_grid(tied):
     from transformers import LlamaConfig, LlamaForCausalLM
 
     logging.getLogger("transformers").setLevel(logging.ERROR)
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     device = int(os.environ["GG_STAGED_DEVICE"])
     vocab, seq = 16, 8
@@ -554,7 +555,7 @@ def test_a_matrix_larger_than_every_worker_is_split_on_the_grid():
     `t, t+1, t+2…` modulo the vocabulary."""
     import torch.nn.functional as F
 
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     device = int(os.environ["GG_TILED_DEVICE"])
     # The large matrix is internal (`mid`, 1024 × 1024, 4 MiB); vocabulary and activations stay
@@ -625,7 +626,7 @@ def test_a_mixture_of_experts_trains_on_the_grid():
     from transformers import MixtralConfig, MixtralForCausalLM
 
     logging.getLogger("transformers").setLevel(logging.ERROR)
-    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"])
+    client = gg.Client(os.environ["GG_SERVER"], os.environ["GG_TOKEN"], node=os.environ.get("GG_NODE"))
     project = os.environ["GG_PROJECT"]
     vocab, seq = 16, 8
 

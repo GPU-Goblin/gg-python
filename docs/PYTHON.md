@@ -40,13 +40,45 @@ classification, 384 examples, 25 rounds × 4 tasks, **loss from 1.098 to 0.025**
 accepted by the validator (`tests/test_live.py`).
 
 **Intermediate checkpoints.** The grid keeps a run's checkpoint at step 0, every 50 steps and at
-the current step; the others are removed about an hour after their round is settled (ADR-0040), and
+the current step; the others are removed about ten minutes after their round is settled (ADR-0040), and
 downloading one then says it expired. `checkpoint()` always reads the current one.
 
 **Gradient precision.** Each task sends its gradient in bf16 by default: half the bytes of f32, for
 a rounding (0.16 % of the norm) that training does not notice (ADR-0035). Weights, the server's
 average and the optimizer state stay f32. `fit(..., gradient_precision="f32")` keeps every bit, at
 twice the upload per task.
+
+## Through the laboratory's node
+
+A laboratory can install a node (`gg-node`, [deploy/node/INSTALL.md](https://github.com/GPU-Goblin/gg-server/blob/main/deploy/node/INSTALL.md)). The
+node keeps the data and the trained weights on the laboratory's machine, and does the optimizer
+step there. The control plane then only schedules. To use the node, give its address to the
+client; nothing else changes:
+
+```python
+client = gg.Client("https://grid.gpugoblin.com", token, node="http://127.0.0.1:7450")
+trainer = gg.Trainer(client, project, model, "cross_entropy", x[:2])
+run = trainer.fit(x, y, rounds=25, batch_per_round=128, tasks_per_round=4)
+trainer.wait(run["run_id"])
+trainer.load_checkpoint_into(model, run["run_id"])   # the weights come from the node
+```
+
+With a node:
+
+- **Datasets and starting weights** go to the node. The control plane receives only the model's
+  description.
+- **The run** is created by the node, which draws or checks the starting weights and applies every
+  optimizer step.
+- **`client.node_run(run_id)`** gives the tasks of the round in progress by state.
+  **`client.node_status()`** gives what the node holds and pulls.
+- **The node checks your token** with the control plane and acts only for you. It works only for the
+  projects it is attached to (`gg node attach`).
+
+Datasets stay on the node whatever their size (up to 8 GiB each); beyond 256 MiB, each task
+receives only its micro-batch rows, which the node cuts. A model no worker holds whole is cut into
+stages by the node (from the `stage_memory_bytes` the plan recommends), and a matrix larger than a
+worker is tiled by the node (`tile_max_param_bytes`); the checkpoint comes back with the tiles
+reassembled, as without a node.
 
 ## Examples
 

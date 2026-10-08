@@ -47,6 +47,11 @@ class Trainer:
         self.parameter_refs: Optional[Dict[str, Dict[str, Any]]] = None
 
     @property
+    def _via_node(self) -> bool:
+        """Whether the client goes through a laboratory's node (ADR-0041)."""
+        return getattr(self.client, "node", None) is not None
+
+    @property
     def parameter_count(self) -> int:
         return int(sum(int(np.prod(p["shape"])) for p in self.description["parameters"]))
 
@@ -63,7 +68,12 @@ class Trainer:
         self.graph_ref = self.client.upload_artifact(
             self.project, self.description_json().encode("utf-8"), "gg-graph-v1"
         )
-        if self.checkpoint_bytes <= SINGLE_UPLOAD_BYTES:
+        if self._via_node:
+            # The laboratory's node keeps the starting weights, in one piece whatever their size.
+            self.checkpoint_ref = self.client.upload_data(
+                self.project, encode_bundle(self.weights), "ggb1-f32"
+            )
+        elif self.checkpoint_bytes <= SINGLE_UPLOAD_BYTES:
             self.checkpoint_ref = self.client.upload_artifact(
                 self.project, encode_bundle(self.weights), "ggb1-f32"
             )
@@ -137,7 +147,10 @@ class Trainer:
         dataset_parts: Dict[str, Any] = {}
         for name, a in arrays.items():
             a = np.asarray(a, dtype=np.float32)
-            if a.nbytes <= SINGLE_UPLOAD_BYTES:
+            if self._via_node:
+                # The datasets stay on the laboratory's node, whole.
+                datasets[name] = self.client.upload_data(self.project, encode_tensor(a), "ggt1-f32")
+            elif a.nbytes <= SINGLE_UPLOAD_BYTES:
                 datasets[name] = self.client.upload_artifact(self.project, encode_tensor(a), "ggt1-f32")
             else:
                 row = max(1, a.nbytes // max(1, a.shape[0]))
@@ -184,7 +197,11 @@ class Trainer:
         for name, ref in sorted(view["checkpoint"]["weights"].items()):
             if not name.startswith("checkpoint"):
                 raise ValueError(f"unexpected checkpoint part: {name}")
-            out.update(decode_bundle(self.client.download_artifact(self.project, ref)))
+            if self._via_node:
+                data = self.client.download_checkpoint_part(run_id, name, ref)
+            else:
+                data = self.client.download_artifact(self.project, ref)
+            out.update(decode_bundle(data))
         # Matrices tiled by the grid (D3): reassembled, in the reverse order of tiling.
         for t in reversed((view.get("config", {}).get("graph") or {}).get("tiling") or []):
             names = [f"{t['param']}.tile{i}of{t['tiles']}" for i in range(t["tiles"])]

@@ -32,12 +32,19 @@ class ApiError(RuntimeError):
 
 
 class Client:
-    """Access authenticated with a researcher API token."""
+    """Access authenticated with a researcher API token.
 
-    def __init__(self, server: str, token: str, timeout: float = 120.0):
+    With `node` (the address of the laboratory's `gg-node`, e.g. `http://127.0.0.1:7450`), the
+    datasets and the starting weights go to the node, which keeps them; the runs are created by the
+    node, which steps them; the trained weights are read from it. The control plane only receives
+    the model's description. The node checks the same token with the control plane (ADR-0041)."""
+
+    def __init__(self, server: str, token: str, timeout: float = 120.0, node: Optional[str] = None):
         self.base = server.rstrip("/") + "/v1"
         self.token = token
         self.timeout = timeout
+        self.node = node.rstrip("/") + "/v1" if node else None
+        self._network: Optional[str] = None
         self._http = requests.Session()
         self._http.headers["Authorization"] = f"Bearer {token}"
 
@@ -72,6 +79,24 @@ class Client:
 
     def get(self, path: str) -> Any:
         return self._check(self._send("GET", self.base + path, timeout=self.timeout))
+
+    def _node_headers(self) -> Dict[str, str]:
+        """The server this client talks to, for a node that works with several (its network)."""
+        if self._network is None:
+            self._network = str(self.info().get("network_id", ""))
+        return {"X-GG-Network": self._network} if self._network else {}
+
+    def _node(self, method: str, path: str, **kwargs: Any) -> Any:
+        if self.node is None:
+            raise RuntimeError("no node configured (Client(..., node='http://127.0.0.1:7450'))")
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers.update(self._node_headers())
+        r = self._send(method, self.node + path, headers=headers, **kwargs)
+        return self._check(r)
+
+    def node_status(self) -> Dict[str, Any]:
+        """The node: servers it works with, projects it works for, what it holds and pulls."""
+        return self._node("GET", "/status", timeout=self.timeout)
 
     def post(self, path: str, body: Mapping[str, Any]) -> Any:
         return self._check(
@@ -120,6 +145,33 @@ class Client:
         )
         self._check(r)
         return {"hash": h, "size": len(data)}
+
+    def upload_data(self, project: str, data: bytes, schema: str) -> Dict[str, Any]:
+        """Data for training (datasets, starting weights): to the node when there is one, which
+        keeps it and never sends it to the control plane; to the control plane otherwise."""
+        if self.node is None:
+            return self.upload_artifact(project, data, schema)
+        h = self.sha256(data)
+        ref = self._node(
+            "PUT",
+            f"/projects/{project}/data",
+            params={"schema": schema},
+            data=data,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=max(self.timeout, 600.0),
+        )
+        if ref.get("hash") != h or int(ref.get("size", -1)) != len(data):
+            raise ApiError(200, "the node recorded other bytes than the ones sent")
+        return {"hash": h, "size": len(data)}
+
+    def download_checkpoint_part(self, run_id: str, name: str, ref: Mapping[str, Any]) -> bytes:
+        """A part of a run's current checkpoint, from the node that holds it; checked."""
+        data = self._node("GET", f"/runs/{run_id}/checkpoint/{name}", timeout=max(self.timeout, 600.0))
+        if not isinstance(data, (bytes, bytearray)):
+            raise ApiError(200, "non-binary response")
+        if len(data) != int(ref["size"]) or self.sha256(data) != ref["hash"]:
+            raise ApiError(200, "received checkpoint differs from the reference (size or hash)")
+        return bytes(data)
 
     def download_artifact(self, project: str, ref: Mapping[str, Any]) -> bytes:
         r = self._send(
@@ -195,12 +247,25 @@ class Client:
         if gradient_precision is not None:
             # bf16 (the grid's default) halves what each task sends; f32 keeps every bit (ADR-0035).
             body["gradient_precision"] = gradient_precision
+        if self.node is not None:
+            # The node steps the run: it names itself as its holder.
+            return self._node("POST", f"/projects/{project}/runs", json=body, timeout=self.timeout)
         return self.post(f"/researcher/projects/{project}/collective", body)
 
     def run(self, run_id: str) -> Dict[str, Any]:
+        if self.node is not None:
+            return self.node_run(run_id)["run"]
         return self.get(f"/researcher/collective/{run_id}")
 
+    def node_run(self, run_id: str) -> Dict[str, Any]:
+        """The run as the node reports it: `run` (the control plane's view), `current_round_tasks`
+        (tasks of the round in progress, by state) and `checkpoint_on_this_node`."""
+        return self._node("GET", f"/runs/{run_id}", timeout=self.timeout)
+
     def cancel_run(self, run_id: str) -> None:
+        if self.node is not None:
+            self._node("POST", f"/runs/{run_id}/cancel", timeout=self.timeout)
+            return
         self.post(f"/researcher/collective/{run_id}/cancel", {})
 
     def wait_run(self, run_id: str, poll: float = 2.0, timeout: Optional[float] = None) -> Dict[str, Any]:
