@@ -31,9 +31,10 @@ What is refused is refused by name, before anything is sent: shapes that depend 
 any single worker is split into stages, and a matrix larger than any worker is tiled, without any
 change to your code: `trainer.plan()` says what the grid can do before any data is sent.
 
-> **Status: research software, version 0.1.0.** There is no public GPU Goblin network yet: you need
-> access to a grid (a server, workers and a validator; see
-> [gg-server](https://github.com/GPU-Goblin/gg-server) to run one locally).
+> **Status: research software, version 0.1.0, in public beta.** The GPU Goblin grid runs at
+> `https://grid.gpugoblin.com`; researchers request access from their account at
+> [gpugoblin.com/account](https://gpugoblin.com/account/). A grid can also run on your own machine
+> (a server, workers and a validator; see [gg-server](https://github.com/GPU-Goblin/gg-server)).
 
 ## Installation
 
